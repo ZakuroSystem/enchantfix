@@ -3,7 +3,7 @@ package dev.grapelemon.enchantauditor;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.EnderChest;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -65,7 +65,7 @@ public class AuditService {
 
         // エンダーチェスト
         if (includeEnder) {
-            EnderChest ec = player.getEnderChest();
+            Inventory ec = player.getEnderChest();
             ItemStack[] ecCont = ec.getContents();
             for (int i = 0; i < ecCont.length; i++) {
                 ecCont[i] = fixItem(player, ecCont[i], "ENDER", i, snapshot);
