@@ -80,7 +80,18 @@ public class AuditService {
 
     private ItemStack fixItem(Player player, ItemStack item, String area, int index, BackupManager.Snapshot snapshot) {
         if (item == null || item.getType() == Material.AIR) return item;
-        ItemMeta meta = item.getItemMeta();
+        ItemMeta meta;
+        try {
+            meta = item.getItemMeta();
+        } catch (IllegalArgumentException ex) {
+            String errorMsg = String.format(
+                    "Failed to read meta for %s [%s:%d]: %s",
+                    item.getType().name(), area, index, ex.getMessage()
+            );
+            plugin.getLogger().warning(errorMsg);
+            pluginLogger.writeLine(errorMsg);
+            return item;
+        }
         if (meta == null) return item;
 
         Map<Enchantment, Integer> enchants = new HashMap<>(meta.getEnchants());
