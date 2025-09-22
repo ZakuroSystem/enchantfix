@@ -1,0 +1,17 @@
+# 監査間隔（秒）
+scan-interval-seconds: 30
+
+# 置換ルール
+rules:
+  cap255-to: 10
+  cap20to99-to: 20
+  cap20to99-min: 20
+  cap20to99-max: 99
+
+# エンダーチェストも監査する場合 true
+include-ender-chest: false
+
+# ログファイル（plugins/EnchantAuditor/logs/<date>.log）
+log:
+  date-pattern: "yyyy-MM-dd"
+  time-pattern: "HH:mm:ss"

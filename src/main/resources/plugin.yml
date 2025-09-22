@@ -1,0 +1,15 @@
+name: EnchantAuditor
+main: dev.grapelemon.enchantauditor.EnchantAuditor
+version: ${project.version}
+api-version: "1.21"
+author: grapelemon
+website: https://example.com
+commands:
+  enchfix:
+    description: Enchant Auditor admin commands
+    usage: "/enchfix <rescan|list|restore|reload> ..."
+    permission: enchfix.admin
+permissions:
+  enchfix.admin:
+    description: Allows using EnchantAuditor admin commands
+    default: op
