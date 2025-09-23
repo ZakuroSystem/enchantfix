@@ -3,7 +3,7 @@ package dev.grapelemon.enchantauditor;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.EnderChest;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -65,7 +65,7 @@ public class AuditService {
 
         // エンダーチェスト
         if (includeEnder) {
-            EnderChest ec = player.getEnderChest();
+            Inventory ec = player.getEnderChest();
             ItemStack[] ecCont = ec.getContents();
             for (int i = 0; i < ecCont.length; i++) {
                 ecCont[i] = fixItem(player, ecCont[i], "ENDER", i, snapshot);
@@ -80,7 +80,18 @@ public class AuditService {
 
     private ItemStack fixItem(Player player, ItemStack item, String area, int index, BackupManager.Snapshot snapshot) {
         if (item == null || item.getType() == Material.AIR) return item;
-        ItemMeta meta = item.getItemMeta();
+        ItemMeta meta;
+        try {
+            meta = item.getItemMeta();
+        } catch (IllegalArgumentException ex) {
+            String errorMsg = String.format(
+                    "Failed to read meta for %s [%s:%d]: %s",
+                    item.getType().name(), area, index, ex.getMessage()
+            );
+            plugin.getLogger().warning(errorMsg);
+            pluginLogger.writeLine(errorMsg);
+            return item;
+        }
         if (meta == null) return item;
 
         Map<Enchantment, Integer> enchants = new HashMap<>(meta.getEnchants());
