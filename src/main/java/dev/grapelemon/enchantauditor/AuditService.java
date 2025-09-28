@@ -1,5 +1,6 @@
 package dev.grapelemon.enchantauditor;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
@@ -80,18 +81,7 @@ public class AuditService {
 
     private ItemStack fixItem(Player player, ItemStack item, String area, int index, BackupManager.Snapshot snapshot) {
         if (item == null || item.getType() == Material.AIR) return item;
-        ItemMeta meta;
-        try {
-            meta = item.getItemMeta();
-        } catch (IllegalArgumentException ex) {
-            String errorMsg = String.format(
-                    "Failed to read meta for %s [%s:%d]: %s",
-                    item.getType().name(), area, index, ex.getMessage()
-            );
-            plugin.getLogger().warning(errorMsg);
-            pluginLogger.writeLine(errorMsg);
-            return item;
-        }
+        ItemMeta meta = safeItemMeta(item, area, index);
         if (meta == null) return item;
 
         Map<Enchantment, Integer> enchants = new HashMap<>(meta.getEnchants());
@@ -129,5 +119,47 @@ public class AuditService {
             pluginLogger.writeLine(msg);
         }
         return item;
+    }
+
+    private ItemMeta safeItemMeta(ItemStack item, String area, int index) {
+        try {
+            return item.getItemMeta();
+        } catch (IllegalArgumentException ex) {
+            boolean stripped = stripInvalidAttributes(item, area, index, ex.getMessage());
+            if (stripped) {
+                try {
+                    return item.getItemMeta();
+                } catch (IllegalArgumentException retryEx) {
+                    logMetaError(item, area, index, retryEx);
+                    return null;
+                }
+            }
+            logMetaError(item, area, index, ex);
+            return null;
+        }
+    }
+
+    private boolean stripInvalidAttributes(ItemStack item, String area, int index, String cause) {
+        try {
+            Bukkit.getUnsafe().modifyItemStack(item, "{AttributeModifiers:[]}");
+            String infoMsg = String.format(
+                    "Stripped invalid attribute modifiers from %s [%s:%d]: %s",
+                    item.getType().name(), area, index, cause
+            );
+            plugin.getLogger().warning(infoMsg);
+            pluginLogger.writeLine(infoMsg);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void logMetaError(ItemStack item, String area, int index, IllegalArgumentException ex) {
+        String errorMsg = String.format(
+                "Failed to read meta for %s [%s:%d]: %s",
+                item.getType().name(), area, index, ex.getMessage()
+        );
+        plugin.getLogger().warning(errorMsg);
+        pluginLogger.writeLine(errorMsg);
     }
 }
