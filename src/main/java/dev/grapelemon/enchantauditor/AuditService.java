@@ -1,9 +1,13 @@
 package dev.grapelemon.enchantauditor;
 
+import com.google.common.collect.Multimap;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -79,6 +83,9 @@ public class AuditService {
         }
     }
 
+    private static final double MULTIPLIER_LIMIT = 1.0D;
+    private static final double MULTIPLIER_EPSILON = 1.0E-6D;
+
     private ItemStack fixItem(Player player, ItemStack item, String area, int index, BackupManager.Snapshot snapshot) {
         if (item == null || item.getType() == Material.AIR) return item;
         ItemMeta meta = safeItemMeta(item, area, index);
@@ -86,6 +93,7 @@ public class AuditService {
 
         Map<Enchantment, Integer> enchants = new HashMap<>(meta.getEnchants());
         boolean changed = false;
+        boolean snapshotSaved = false;
         List<String> changeLogs = new ArrayList<>();
 
         for (Map.Entry<Enchantment, Integer> e : enchants.entrySet()) {
@@ -101,7 +109,10 @@ public class AuditService {
 
             if (newLevel != level) {
                 // バックアップ（このスロット未記録なら保存）
-                snapshot.offer(area, index, item);
+                if (!snapshotSaved) {
+                    snapshot.offer(area, index, item);
+                    snapshotSaved = true;
+                }
 
                 meta.removeEnchant(ench);
                 meta.addEnchant(ench, newLevel, false);
@@ -109,6 +120,16 @@ public class AuditService {
 
                 changeLogs.add(ench.getKey().getKey() + " " + level + "->" + newLevel);
             }
+        }
+
+        List<String> attributeLogs = clampAttributeMultipliers(meta);
+        if (!attributeLogs.isEmpty()) {
+            if (!snapshotSaved) {
+                snapshot.offer(area, index, item);
+                snapshotSaved = true;
+            }
+            changeLogs.addAll(attributeLogs);
+            changed = true;
         }
 
         if (changed) {
@@ -141,7 +162,8 @@ public class AuditService {
 
     private boolean stripInvalidAttributes(ItemStack item, String area, int index, String cause) {
         try {
-            Bukkit.getUnsafe().modifyItemStack(item, "{AttributeModifiers:[]}");
+            String itemTag = item.getType().getKey().toString() + "{AttributeModifiers:[]}";
+            Bukkit.getUnsafe().modifyItemStack(item, itemTag);
             String infoMsg = String.format(
                     "Stripped invalid attribute modifiers from %s [%s:%d]: %s",
                     item.getType().name(), area, index, cause
@@ -150,8 +172,74 @@ public class AuditService {
             pluginLogger.writeLine(infoMsg);
             return true;
         } catch (Throwable t) {
+            String warnMsg = String.format(
+                    "Failed to strip attribute modifiers from %s [%s:%d]: %s",
+                    item.getType().name(), area, index, t.getMessage()
+            );
+            plugin.getLogger().warning(warnMsg);
+            pluginLogger.writeLine(warnMsg);
             return false;
         }
+    }
+
+    private List<String> clampAttributeMultipliers(ItemMeta meta) {
+        if (!meta.hasAttributeModifiers()) {
+            return Collections.emptyList();
+        }
+
+        Multimap<Attribute, AttributeModifier> modifiers = meta.getAttributeModifiers();
+        if (modifiers == null || modifiers.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        record AttributeAdjustment(Attribute attribute, AttributeModifier original, double originalAmount) {}
+
+        List<AttributeAdjustment> adjustments = new ArrayList<>();
+        for (Map.Entry<Attribute, AttributeModifier> entry : modifiers.entries()) {
+            AttributeModifier modifier = entry.getValue();
+            AttributeModifier.Operation operation = modifier.getOperation();
+            if (operation == AttributeModifier.Operation.ADD_NUMBER) {
+                continue;
+            }
+
+            double amount = modifier.getAmount();
+            if (amount > MULTIPLIER_LIMIT + MULTIPLIER_EPSILON) {
+                adjustments.add(new AttributeAdjustment(entry.getKey(), modifier, amount));
+            }
+        }
+
+        if (adjustments.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> logs = new ArrayList<>();
+        for (AttributeAdjustment adjustment : adjustments) {
+            Attribute attribute = adjustment.attribute();
+            AttributeModifier original = adjustment.original();
+            meta.removeAttributeModifier(attribute, original);
+
+            AttributeModifier replacement = rebuildModifier(original, MULTIPLIER_LIMIT);
+            meta.addAttributeModifier(attribute, replacement);
+
+            long originalPercent = Math.round(adjustment.originalAmount() * 100.0D);
+            logs.add(String.format(
+                    Locale.ROOT,
+                    "attr %s %s %+d%%->+100%%",
+                    attribute.name(),
+                    original.getName(),
+                    originalPercent
+            ));
+        }
+
+        return logs;
+    }
+
+    private AttributeModifier rebuildModifier(AttributeModifier original, double amount) {
+        EquipmentSlot slot = original.getSlot();
+        if (slot != null) {
+            return new AttributeModifier(original.getUniqueId(), original.getName(), amount, original.getOperation(), slot);
+        }
+        return new AttributeModifier(original.getUniqueId(), original.getName(), amount, original.getOperation());
     }
 
     private void logMetaError(ItemStack item, String area, int index, IllegalArgumentException ex) {
