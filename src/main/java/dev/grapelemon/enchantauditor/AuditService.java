@@ -85,6 +85,7 @@ public class AuditService {
 
     private static final double MULTIPLIER_LIMIT = 1.0D;
     private static final double MULTIPLIER_EPSILON = 1.0E-6D;
+    private static final double ATTACK_DAMAGE_LIMIT = 10.0D;
 
     private ItemStack fixItem(Player player, ItemStack item, String area, int index, BackupManager.Snapshot snapshot) {
         if (item == null || item.getType() == Material.AIR) return item;
@@ -197,13 +198,22 @@ public class AuditService {
         for (Map.Entry<Attribute, AttributeModifier> entry : modifiers.entries()) {
             AttributeModifier modifier = entry.getValue();
             AttributeModifier.Operation operation = modifier.getOperation();
+            Attribute attribute = entry.getKey();
             if (operation == AttributeModifier.Operation.ADD_NUMBER) {
+                if (attribute != Attribute.GENERIC_ATTACK_DAMAGE) {
+                    continue;
+                }
+
+                double amount = modifier.getAmount();
+                if (!Double.isFinite(amount) || amount > ATTACK_DAMAGE_LIMIT + MULTIPLIER_EPSILON) {
+                    adjustments.add(new AttributeAdjustment(attribute, modifier, amount));
+                }
                 continue;
             }
 
             double amount = modifier.getAmount();
             if (amount > MULTIPLIER_LIMIT + MULTIPLIER_EPSILON) {
-                adjustments.add(new AttributeAdjustment(entry.getKey(), modifier, amount));
+                adjustments.add(new AttributeAdjustment(attribute, modifier, amount));
             }
         }
 
@@ -217,20 +227,48 @@ public class AuditService {
             AttributeModifier original = adjustment.original();
             meta.removeAttributeModifier(attribute, original);
 
-            AttributeModifier replacement = rebuildModifier(original, MULTIPLIER_LIMIT);
-            meta.addAttributeModifier(attribute, replacement);
+            AttributeModifier replacement;
+            String log;
 
-            long originalPercent = Math.round(adjustment.originalAmount() * 100.0D);
-            logs.add(String.format(
-                    Locale.ROOT,
-                    "attr %s %s %+d%%->+100%%",
-                    attribute.name(),
-                    original.getName(),
-                    originalPercent
-            ));
+            if (original.getOperation() == AttributeModifier.Operation.ADD_NUMBER && attribute == Attribute.GENERIC_ATTACK_DAMAGE) {
+                replacement = rebuildModifier(original, ATTACK_DAMAGE_LIMIT);
+                log = formatAttackDamageLog(attribute, original, adjustment.originalAmount());
+            } else {
+                replacement = rebuildModifier(original, MULTIPLIER_LIMIT);
+                long originalPercent = Math.round(adjustment.originalAmount() * 100.0D);
+                log = String.format(
+                        Locale.ROOT,
+                        "attr %s %s %+d%%->+100%%",
+                        attribute.name(),
+                        original.getName(),
+                        originalPercent
+                );
+            }
+
+            meta.addAttributeModifier(attribute, replacement);
+            logs.add(log);
         }
 
         return logs;
+    }
+
+    private String formatAttackDamageLog(Attribute attribute, AttributeModifier original, double originalAmount) {
+        String originalText;
+        if (Double.isNaN(originalAmount)) {
+            originalText = "NaN";
+        } else if (Double.isInfinite(originalAmount)) {
+            originalText = originalAmount > 0 ? "+∞" : "-∞";
+        } else {
+            originalText = String.format(Locale.ROOT, "%+,.1f", originalAmount);
+        }
+
+        return String.format(
+                Locale.ROOT,
+                "attr %s %s %s->+10.0",
+                attribute.name(),
+                original.getName(),
+                originalText
+        );
     }
 
     private AttributeModifier rebuildModifier(AttributeModifier original, double amount) {
