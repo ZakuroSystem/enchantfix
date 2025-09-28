@@ -162,8 +162,7 @@ public class AuditService {
 
     private boolean stripInvalidAttributes(ItemStack item, String area, int index, String cause) {
         try {
-            String itemTag = item.getType().getKey().toString() + "{AttributeModifiers:[]}";
-            Bukkit.getUnsafe().modifyItemStack(item, itemTag);
+            Bukkit.getUnsafe().modifyItemStack(item, "{AttributeModifiers:[]}");
             String infoMsg = String.format(
                     "Stripped invalid attribute modifiers from %s [%s:%d]: %s",
                     item.getType().name(), area, index, cause
