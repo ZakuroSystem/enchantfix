@@ -1,4 +1,4 @@
-# EnchantAuditor (PurPur/Paper 1.21.1)
+# EnchantAuditor (PurPur/Paper 1.21.4+)
 
 Author: **grapelemon**
 

@@ -13,6 +13,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.lang.reflect.Method;
 import java.util.*;
 
 public class AuditService {
@@ -199,7 +200,8 @@ public class AuditService {
             AttributeModifier modifier = entry.getValue();
             AttributeModifier.Operation operation = modifier.getOperation();
             Attribute attribute = entry.getKey();
-            if (operation == AttributeModifier.Operation.ADD_NUMBER) {
+
+            if (isAdditiveOperation(operation)) {
                 if (attribute != Attribute.GENERIC_ATTACK_DAMAGE) {
                     continue;
                 }
@@ -208,6 +210,10 @@ public class AuditService {
                 if (!Double.isFinite(amount) || amount > ATTACK_DAMAGE_LIMIT + MULTIPLIER_EPSILON) {
                     adjustments.add(new AttributeAdjustment(attribute, modifier, amount));
                 }
+                continue;
+            }
+
+            if (!isMultiplierOperation(operation)) {
                 continue;
             }
 
@@ -272,11 +278,77 @@ public class AuditService {
     }
 
     private AttributeModifier rebuildModifier(AttributeModifier original, double amount) {
-        EquipmentSlot slot = original.getSlot();
+        AttributeModifier rebuilt = rebuildWithBuilder(original, amount);
+        if (rebuilt != null) {
+            return rebuilt;
+        }
+
+        EquipmentSlot slot = tryGetEquipmentSlot(original);
         if (slot != null) {
             return new AttributeModifier(original.getUniqueId(), original.getName(), amount, original.getOperation(), slot);
         }
         return new AttributeModifier(original.getUniqueId(), original.getName(), amount, original.getOperation());
+    }
+
+    private AttributeModifier rebuildWithBuilder(AttributeModifier original, double amount) {
+        try {
+            Method builderMethod = AttributeModifier.class.getMethod("builder");
+            Object builder = builderMethod.invoke(null);
+
+            invokeBuilder(builder, "id", UUID.class, original.getUniqueId());
+            invokeBuilder(builder, "name", String.class, original.getName());
+            invokeBuilder(builder, "amount", double.class, amount);
+            invokeBuilder(builder, "operation", AttributeModifier.Operation.class, original.getOperation());
+
+            try {
+                Method getSlotGroup = AttributeModifier.class.getMethod("getSlotGroup");
+                Object slotGroup = getSlotGroup.invoke(original);
+                if (slotGroup != null) {
+                    invokeBuilder(builder, "slotGroup", slotGroup.getClass(), slotGroup);
+                }
+            } catch (NoSuchMethodException ignored) {
+                EquipmentSlot slot = tryGetEquipmentSlot(original);
+                if (slot != null) {
+                    invokeBuilder(builder, "slot", EquipmentSlot.class, slot);
+                }
+            }
+
+            Method buildMethod = builder.getClass().getMethod("build");
+            return (AttributeModifier) buildMethod.invoke(builder);
+        } catch (ReflectiveOperationException | IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private EquipmentSlot tryGetEquipmentSlot(AttributeModifier original) {
+        try {
+            Method getSlot = AttributeModifier.class.getMethod("getSlot");
+            Object slot = getSlot.invoke(original);
+            if (slot instanceof EquipmentSlot equipmentSlot) {
+                return equipmentSlot;
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // ignore
+        }
+        return null;
+    }
+
+    private void invokeBuilder(Object builder, String methodName, Class<?> parameterType, Object argument) throws ReflectiveOperationException {
+        Method method = builder.getClass().getMethod(methodName, parameterType);
+        method.invoke(builder, argument);
+    }
+
+    private static boolean isAdditiveOperation(AttributeModifier.Operation operation) {
+        String name = operation.name();
+        return name.equals("ADD_NUMBER") || name.equals("ADD_VALUE");
+    }
+
+    private static boolean isMultiplierOperation(AttributeModifier.Operation operation) {
+        String name = operation.name();
+        if (name.equals("ADD_SCALAR") || name.equals("MULTIPLY_SCALAR_1") || name.equals("ADD_MULTIPLIER")) {
+            return true;
+        }
+        return name.contains("MULTIPLY");
     }
 
     private void logMetaError(ItemStack item, String area, int index, IllegalArgumentException ex) {
