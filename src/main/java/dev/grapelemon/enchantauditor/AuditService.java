@@ -5,6 +5,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
+import org.bukkit.NamespacedKey;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
@@ -202,7 +203,7 @@ public class AuditService {
             Attribute attribute = entry.getKey();
 
             if (isAdditiveOperation(operation)) {
-                if (attribute != Attribute.GENERIC_ATTACK_DAMAGE) {
+                if (!isAttackDamageAttribute(attribute)) {
                     continue;
                 }
 
@@ -236,7 +237,7 @@ public class AuditService {
             AttributeModifier replacement;
             String log;
 
-            if (original.getOperation() == AttributeModifier.Operation.ADD_NUMBER && attribute == Attribute.GENERIC_ATTACK_DAMAGE) {
+            if (original.getOperation() == AttributeModifier.Operation.ADD_NUMBER && isAttackDamageAttribute(attribute)) {
                 replacement = rebuildModifier(original, ATTACK_DAMAGE_LIMIT);
                 log = formatAttackDamageLog(attribute, original, adjustment.originalAmount());
             } else {
@@ -245,7 +246,7 @@ public class AuditService {
                 log = String.format(
                         Locale.ROOT,
                         "attr %s %s %+d%%->+100%%",
-                        attribute.name(),
+                        attributeKey(attribute),
                         original.getName(),
                         originalPercent
                 );
@@ -271,10 +272,57 @@ public class AuditService {
         return String.format(
                 Locale.ROOT,
                 "attr %s %s %s->+10.0",
-                attribute.name(),
+                attributeKey(attribute),
                 original.getName(),
                 originalText
         );
+    }
+
+    private boolean isAttackDamageAttribute(Attribute attribute) {
+        if (attribute == null) {
+            return false;
+        }
+
+        try {
+            NamespacedKey key = attribute.getKey();
+            if (key != null && "generic.attack_damage".equals(key.getKey())) {
+                return true;
+            }
+        } catch (NoSuchMethodError ignored) {
+            // ignore
+        }
+
+        try {
+            String name = attribute.name();
+            if ("GENERIC_ATTACK_DAMAGE".equals(name) || "ATTACK_DAMAGE".equals(name)) {
+                return true;
+            }
+        } catch (NoSuchMethodError ignored) {
+            // ignore
+        }
+
+        return false;
+    }
+
+    private String attributeKey(Attribute attribute) {
+        if (attribute == null) {
+            return "unknown";
+        }
+
+        try {
+            NamespacedKey key = attribute.getKey();
+            if (key != null) {
+                return key.toString();
+            }
+        } catch (NoSuchMethodError ignored) {
+            // ignore
+        }
+
+        try {
+            return attribute.name();
+        } catch (NoSuchMethodError ignored) {
+            return attribute.toString();
+        }
     }
 
     private AttributeModifier rebuildModifier(AttributeModifier original, double amount) {
