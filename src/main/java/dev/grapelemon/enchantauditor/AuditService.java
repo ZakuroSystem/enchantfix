@@ -14,6 +14,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -165,23 +166,45 @@ public class AuditService {
 
     private boolean stripInvalidAttributes(ItemStack item, String area, int index, String cause) {
         try {
+            ItemMeta rebuiltMeta = tryStripAttributesWithNms(item);
+            if (rebuiltMeta != null) {
+                item.setItemMeta(rebuiltMeta);
+                logAttributeStripSuccess(item, area, index, cause, "nms rebuild");
+                return true;
+            }
+        } catch (Throwable nmsFailure) {
+            // fall through to unsafe fallback
+        }
+
+        try {
             Bukkit.getUnsafe().modifyItemStack(item, "{AttributeModifiers:[]}");
-            String infoMsg = String.format(
-                    "Stripped invalid attribute modifiers from %s [%s:%d]: %s",
-                    item.getType().name(), area, index, cause
-            );
-            plugin.getLogger().warning(infoMsg);
-            pluginLogger.writeLine(infoMsg);
+            logAttributeStripSuccess(item, area, index, cause, "unsafe patch");
             return true;
         } catch (Throwable t) {
-            String warnMsg = String.format(
-                    "Failed to strip attribute modifiers from %s [%s:%d]: %s",
-                    item.getType().name(), area, index, t.getMessage()
-            );
-            plugin.getLogger().warning(warnMsg);
-            pluginLogger.writeLine(warnMsg);
+            logAttributeStripFailure(item, area, index, t);
             return false;
         }
+    }
+
+    private void logAttributeStripSuccess(ItemStack item, String area, int index, String cause, String strategy) {
+        String infoMsg = String.format(
+                Locale.ROOT,
+                "Stripped invalid attribute modifiers from %s [%s:%d] via %s: %s",
+                item.getType().name(), area, index, strategy, cause
+        );
+        plugin.getLogger().warning(infoMsg);
+        pluginLogger.writeLine(infoMsg);
+    }
+
+    private void logAttributeStripFailure(ItemStack item, String area, int index, Throwable failure) {
+        String warnMsg = String.format(
+                Locale.ROOT,
+                "Failed to strip attribute modifiers from %s [%s:%d]: %s",
+                item.getType().name(), area, index,
+                failure != null ? String.valueOf(failure.getMessage()) : "unknown error"
+        );
+        plugin.getLogger().warning(warnMsg);
+        pluginLogger.writeLine(warnMsg);
     }
 
     private List<String> clampAttributeMultipliers(ItemMeta meta) {
@@ -397,6 +420,91 @@ public class AuditService {
             return true;
         }
         return name.contains("MULTIPLY");
+    }
+
+    private ItemMeta tryStripAttributesWithNms(ItemStack item) throws ReflectiveOperationException {
+        Class<?> craftItemStackClass = Class.forName("org.bukkit.craftbukkit.inventory.CraftItemStack");
+        Method asNmsCopy = craftItemStackClass.getMethod("asNMSCopy", ItemStack.class);
+        Object nmsItem = asNmsCopy.invoke(null, item);
+
+        boolean removed = tryRemoveAttributeComponent(nmsItem);
+        removed |= tryRemoveAttributeTag(nmsItem);
+
+        if (!removed) {
+            return null;
+        }
+
+        Method asCraftMirror = craftItemStackClass.getMethod("asCraftMirror", nmsItem.getClass());
+        ItemStack sanitized = (ItemStack) asCraftMirror.invoke(null, nmsItem);
+        if (sanitized == null) {
+            return null;
+        }
+
+        try {
+            return sanitized.getItemMeta();
+        } catch (IllegalArgumentException metaFailure) {
+            throw metaFailure;
+        }
+    }
+
+    private boolean tryRemoveAttributeComponent(Object nmsItem) {
+        try {
+            Class<?> itemStackClass = nmsItem.getClass();
+            Class<?> dataComponentTypeClass = Class.forName("net.minecraft.core.component.DataComponentType");
+            Method removeMethod = itemStackClass.getMethod("remove", dataComponentTypeClass);
+            Class<?> dataComponentTypesClass = Class.forName("net.minecraft.core.component.DataComponentTypes");
+            Object attributeType = dataComponentTypesClass.getField("ATTRIBUTE_MODIFIERS").get(null);
+            Object result = removeMethod.invoke(nmsItem, attributeType);
+            if (result instanceof Boolean bool) {
+                return bool;
+            }
+            return true;
+        } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException |
+                 NoSuchFieldException ignored) {
+            return false;
+        }
+    }
+
+    private boolean tryRemoveAttributeTag(Object nmsItem) {
+        try {
+            Class<?> itemStackClass = nmsItem.getClass();
+            Method getTagMethod;
+            try {
+                getTagMethod = itemStackClass.getMethod("getTag");
+            } catch (NoSuchMethodException missing) {
+                return false;
+            }
+
+            Object tag = getTagMethod.invoke(nmsItem);
+            if (tag == null) {
+                return false;
+            }
+
+            Class<?> compoundTagClass = Class.forName("net.minecraft.nbt.CompoundTag");
+            Method containsMethod;
+            try {
+                containsMethod = compoundTagClass.getMethod("contains", String.class);
+            } catch (NoSuchMethodException missingContains) {
+                containsMethod = null;
+            }
+
+            boolean hasAttributeList = true;
+            if (containsMethod != null) {
+                hasAttributeList = (boolean) containsMethod.invoke(tag, "AttributeModifiers");
+            }
+            if (!hasAttributeList) {
+                return false;
+            }
+
+            Method removeMethod = compoundTagClass.getMethod("remove", String.class);
+            removeMethod.invoke(tag, "AttributeModifiers");
+
+            Method setTagMethod = itemStackClass.getMethod("setTag", compoundTagClass);
+            setTagMethod.invoke(nmsItem, tag);
+            return true;
+        } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException ignored) {
+            return false;
+        }
     }
 
     private void logMetaError(ItemStack item, String area, int index, IllegalArgumentException ex) {
