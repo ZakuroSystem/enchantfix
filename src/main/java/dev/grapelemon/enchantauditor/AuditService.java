@@ -24,10 +24,7 @@ public class AuditService {
     private final BackupManager backupManager;
     private final PluginLogger pluginLogger;
 
-    private int cap255To;
-    private int capMin;
-    private int capMax;
-    private int capRangeTo;
+    private int maxEnchantLevel;
     private boolean includeEnder;
 
     public AuditService(EnchantAuditor plugin, BackupManager backupManager, PluginLogger pluginLogger) {
@@ -42,10 +39,7 @@ public class AuditService {
     }
 
     private void loadConfig() {
-        this.cap255To = plugin.getConfig().getInt("rules.cap255-to", 10);
-        this.capRangeTo = plugin.getConfig().getInt("rules.cap20to99-to", 20);
-        this.capMin = plugin.getConfig().getInt("rules.cap20to99-min", 20);
-        this.capMax = plugin.getConfig().getInt("rules.cap20to99-max", 99);
+        this.maxEnchantLevel = Math.max(1, plugin.getConfig().getInt("rules.max-level", 10));
         this.includeEnder = plugin.getConfig().getBoolean("include-ender-chest", false);
     }
 
@@ -104,11 +98,8 @@ public class AuditService {
             Enchantment ench = e.getKey();
             int level = e.getValue();
             int newLevel = level;
-
-            if (level == 255) {
-                newLevel = cap255To;
-            } else if (level >= capMin && level <= capMax) {
-                newLevel = capRangeTo;
+            if (level > maxEnchantLevel) {
+                newLevel = maxEnchantLevel;
             }
 
             if (newLevel != level) {
