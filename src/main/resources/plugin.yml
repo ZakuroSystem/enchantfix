@@ -1,7 +1,7 @@
 name: EnchantAuditor
 main: dev.grapelemon.enchantauditor.EnchantAuditor
 version: ${project.version}
-api-version: "1.21"
+api-version: "1.21.1"
 author: grapelemon
 website: https://example.com
 commands:

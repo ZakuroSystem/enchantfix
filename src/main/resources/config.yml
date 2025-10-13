@@ -3,10 +3,7 @@ scan-interval-seconds: 30
 
 # 置換ルール
 rules:
-  cap255-to: 10
-  cap20to99-to: 20
-  cap20to99-min: 20
-  cap20to99-max: 99
+  max-level: 10
 
 # エンダーチェストも監査する場合 true
 include-ender-chest: false

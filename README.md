@@ -1,10 +1,9 @@
-# EnchantAuditor (PurPur/Paper 1.21.1)
+# EnchantAuditor (PurPur/Paper 1.21.1+)
 
 Author: **grapelemon**
 
 ## 概要
-- Lv255 → Lv10
-- Lv20〜Lv99 → Lv20
+- Lv10を超えるエンチャントはすべてLv10へ丸め込み
 - バックアップあり（変更対象スロットのみ、NBT保持）
 - ログは **コンソール** と **専用ログファイル** の2系統
 - ログイン時＆定期監査（`scan-interval-seconds`）
